@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --text: #22201c;
+    --muted: #7a756b;
+    --line: #d6d1c4;
+    --x: #d1495b;
+    --o: #2e86ab;
+    --accent: #22201c;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1b19;
+      --surface: #272622;
+      --text: #f2efe8;
+      --muted: #9c978a;
+      --line: #3d3b35;
+      --x: #ff6b7f;
+      --o: #5fb8e0;
+      --accent: #f2efe8;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1b19;
+    --surface: #272622;
+    --text: #f2efe8;
+    --muted: #9c978a;
+    --line: #3d3b35;
+    --x: #ff6b7f;
+    --o: #5fb8e0;
+    --accent: #f2efe8;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+  }
+  .wrap { width: 100%; max-width: 360px; text-align: center; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: 0.02em; }
+  .status { min-height: 1.5em; color: var(--muted); margin: 8px 0 16px; font-size: 1rem; }
+  .status strong { color: var(--text); }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    background: var(--surface);
+    padding: 8px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    aspect-ratio: 1;
+  }
+  .cell {
+    background: var(--bg);
+    border: none;
+    border-radius: 10px;
+    font-size: clamp(2.5rem, 12vw, 4rem);
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    transition: background 0.15s;
+    padding: 0;
+    font-family: inherit;
+  }
+  .cell:hover:not(:disabled) { background: var(--line); }
+  .cell:disabled { cursor: default; }
+  .cell.x { color: var(--x); }
+  .cell.o { color: var(--o); }
+  .cell.win { background: var(--line); }
+  .controls { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  button.btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  button.btn:hover { filter: brightness(0.97); }
+  .score { display: flex; justify-content: space-around; margin-top: 20px; font-size: 0.95rem; color: var(--muted); }
+  .score b { display: block; font-size: 1.4rem; color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tic-Tac-Toe</h1>
+  <div class="status" id="status"></div>
+  <div class="board" id="board" role="grid" aria-label="Tic-tac-toe board"></div>
+  <div class="controls">
+    <button class="btn active" id="mode-2p" type="button">2 Players</button>
+    <button class="btn" id="mode-cpu" type="button">vs Computer</button>
+    <button class="btn" id="reset" type="button">New Game</button>
+  </div>
+  <div class="score">
+    <div>X<b id="score-x">0</b></div>
+    <div>Draws<b id="score-d">0</b></div>
+    <div>O<b id="score-o">0</b></div>
+  </div>
+</div>
+
+<script>
+  const LINES = [
+    [0,1,2],[3,4,5],[6,7,8],
+    [0,3,6],[1,4,7],[2,5,8],
+    [0,4,8],[2,4,6]
+  ];
+
+  let board, current, over, vsCPU, scores;
+  scores = { X: 0, O: 0, D: 0 };
+  vsCPU = false;
+
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const cells = [];
+
+  for (let i = 0; i < 9; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'cell';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Cell ' + (i + 1));
+    btn.addEventListener('click', () => play(i));
+    boardEl.appendChild(btn);
+    cells.push(btn);
+  }
+
+  function winnerInfo(b) {
+    for (const [a, c, d] of LINES) {
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) return { player: b[a], line: [a, c, d] };
+    }
+    if (b.every(v => v)) return { player: 'D', line: [] };
+    return null;
+  }
+
+  function render(winLine = []) {
+    cells.forEach((btn, i) => {
+      btn.textContent = board[i];
+      btn.className = 'cell' + (board[i] ? ' ' + board[i].toLowerCase() : '') + (winLine.includes(i) ? ' win' : '');
+      btn.disabled = over || !!board[i] || (vsCPU && current === 'O');
+    });
+    document.getElementById('score-x').textContent = scores.X;
+    document.getElementById('score-o').textContent = scores.O;
+    document.getElementById('score-d').textContent = scores.D;
+  }
+
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  function announce() {
+    if (over) return;
+    if (vsCPU && current === 'O') {
+      setStatus('Computer is thinking…');
+    } else {
+      setStatus('Turn: <strong>' + current + '</strong>');
+    }
+  }
+
+  function play(i) {
+    if (over || board[i] || (vsCPU && current === 'O')) return;
+    makeMove(i);
+    if (!over && vsCPU && current === 'O') {
+      setTimeout(cpuMove, 350);
+    }
+  }
+
+  function makeMove(i) {
+    board[i] = current;
+    const result = winnerInfo(board);
+    if (result) {
+      over = true;
+      if (result.player === 'D') {
+        scores.D++;
+        render();
+        setStatus('It\'s a <strong>draw</strong>!');
+      } else {
+        scores[result.player]++;
+        render(result.line);
+        setStatus('<strong>' + result.player + '</strong> wins!');
+      }
+      return;
+    }
+    current = current === 'X' ? 'O' : 'X';
+    render();
+    announce();
+  }
+
+  // Computer plays O: win if possible, block if needed, otherwise random.
+  function cpuMove() {
+    if (over) return;
+    let move = findWinningMove('O');
+    if (move === -1) move = findWinningMove('X');
+    if (move === -1 && board[4] === '') move = 4;
+    if (move === -1) {
+      const empty = board.map((v, i) => v ? -1 : i).filter(i => i !== -1);
+      move = empty[Math.floor(Math.random() * empty.length)];
+    }
+    makeMove(move);
+  }
+
+  function findWinningMove(p) {
+    for (const [a, b, c] of LINES) {
+      const trio = [a, b, c];
+      const mine = trio.filter(i => board[i] === p);
+      const empty = trio.filter(i => board[i] === '');
+      if (mine.length === 2 && empty.length === 1) return empty[0];
+    }
+    return -1;
+  }
+
+  function newGame() {
+    board = Array(9).fill('');
+    current = 'X';
+    over = false;
+    render();
+    announce();
+  }
+
+  function setMode(cpu) {
+    vsCPU = cpu;
+    document.getElementById('mode-2p').classList.toggle('active', !cpu);
+    document.getElementById('mode-cpu').classList.toggle('active', cpu);
+    scores = { X: 0, O: 0, D: 0 };
+    newGame();
+  }
+
+  document.getElementById('mode-2p').addEventListener('click', () => setMode(false));
+  document.getElementById('mode-cpu').addEventListener('click', () => setMode(true));
+  document.getElementById('reset').addEventListener('click', newGame);
+
+  newGame();
+</script>
+</body>
+</html>

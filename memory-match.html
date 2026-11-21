@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Memory Match</title>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --text: #22201c;
+    --muted: #7a756b;
+    --line: #d6d1c4;
+    --back: #5b7c99;
+    --back-dark: #4a6780;
+    --front: #ffffff;
+    --matched: #d8ecd9;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1b19;
+      --surface: #272622;
+      --text: #f2efe8;
+      --muted: #9c978a;
+      --line: #3d3b35;
+      --back: #3f5c75;
+      --back-dark: #335068;
+      --front: #332f2a;
+      --matched: #2d4a33;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1b19;
+    --surface: #272622;
+    --text: #f2efe8;
+    --muted: #9c978a;
+    --line: #3d3b35;
+    --back: #3f5c75;
+    --back-dark: #335068;
+    --front: #332f2a;
+    --matched: #2d4a33;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 12px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  }
+  .wrap { width: 100%; max-width: 420px; text-align: center; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: 0.02em; }
+  .stats { display: flex; justify-content: space-around; margin: 8px 0 14px; font-size: 0.95rem; color: var(--muted); }
+  .stats b { display: block; font-size: 1.4rem; color: var(--text); }
+  .size { display: flex; gap: 8px; justify-content: center; margin-bottom: 14px; }
+  .grid {
+    display: grid;
+    gap: 8px;
+  }
+  .grid.g4 { grid-template-columns: repeat(4, 1fr); }
+  .grid.g6 { grid-template-columns: repeat(4, 1fr); }
+  .card {
+    aspect-ratio: 3 / 4;
+    perspective: 600px;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    background: none;
+    font-family: inherit;
+  }
+  .inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.35s;
+    transform-style: preserve-3d;
+  }
+  .card.flipped .inner, .card.matched .inner { transform: rotateY(180deg); }
+  .face {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    font-size: clamp(1.5rem, 7vw, 2.2rem);
+  }
+  .back {
+    background: repeating-linear-gradient(45deg, var(--back), var(--back) 8px, var(--back-dark) 8px, var(--back-dark) 16px);
+    border: 1px solid var(--line);
+  }
+  .front {
+    background: var(--front);
+    border: 1px solid var(--line);
+    transform: rotateY(180deg);
+  }
+  .card.matched .front { background: var(--matched); }
+  .msg { min-height: 1.5em; margin: 14px 0 0; color: var(--muted); }
+  .controls { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  button.btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button.btn:hover { filter: brightness(0.97); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Memory Match</h1>
+  <div class="stats">
+    <div>Moves<b id="moves">0</b></div>
+    <div>Pairs<b id="pairs">0 / 0</b></div>
+    <div>Time<b id="time">0s</b></div>
+  </div>
+  <div class="size">
+    <button class="btn active" id="size-4" type="button">4 × 4</button>
+    <button class="btn" id="size-6" type="button">4 × 6</button>
+  </div>
+  <div class="grid g4" id="board" aria-label="Memory card board"></div>
+  <div class="msg" id="msg">Find all the matching pairs.</div>
+  <div class="controls">
+    <button class="btn" id="reset" type="button">New Game</button>
+  </div>
+</div>
+
+<script>
+  const SYMBOLS = ['🍎','🍌','🍇','🍒','🍉','🍓','🥝','🍍','🥥','🍑','🥕','🌽','🍄','🌵','🌸','⭐'];
+
+  const boardEl = document.getElementById('board');
+  const movesEl = document.getElementById('moves');
+  const pairsEl = document.getElementById('pairs');
+  const timeEl = document.getElementById('time');
+  const msgEl = document.getElementById('msg');
+
+  let size = 4;            // 4 = 4x4, 6 = 4x6
+  let cards = [];          // { symbol, flipped, matched, el }
+  let firstPick = null, secondPick = null, lockBoard = false;
+  let moves = 0, matchedCount = 0, totalPairs = 0;
+  let timerId = null, startTime = null, elapsed = 0, finished = false;
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function startTimer() {
+    if (timerId) return;
+    startTime = Date.now() - elapsed * 1000;
+    timerId = setInterval(() => {
+      elapsed = Math.floor((Date.now() - startTime) / 1000);
+      timeEl.textContent = elapsed + 's';
+    }, 250);
+  }
+
+  function stopTimer() {
+    clearInterval(timerId);
+    timerId = null;
+  }
+
+  function newGame() {
+    stopTimer();
+    elapsed = 0;
+    timeEl.textContent = '0s';
+    moves = 0;
+    matchedCount = 0;
+    firstPick = secondPick = null;
+    lockBoard = false;
+    finished = false;
+
+    const pairCount = (size * 4) / 2;
+    totalPairs = pairCount;
+    const symbols = shuffle(SYMBOLS.slice()).slice(0, pairCount);
+    const deck = shuffle([...symbols, ...symbols]);
+
+    boardEl.className = 'grid ' + (size === 4 ? 'g4' : 'g6');
+    boardEl.innerHTML = '';
+    cards = deck.map((symbol, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'card';
+      btn.type = 'button';
+      btn.setAttribute('aria-label', 'Card ' + (i + 1));
+      btn.innerHTML =
+        '<div class="inner">' +
+          '<div class="face back"></div>' +
+          '<div class="face front">' + symbol + '</div>' +
+        '</div>';
+      btn.addEventListener('click', () => flip(i));
+      boardEl.appendChild(btn);
+      return { symbol, flipped: false, matched: false, el: btn };
+    });
+
+    updateStats();
+    msgEl.textContent = 'Find all the matching pairs.';
+  }
+
+  function updateStats() {
+    movesEl.textContent = moves;
+    pairsEl.textContent = matchedCount + ' / ' + totalPairs;
+  }
+
+  function flip(i) {
+    const card = cards[i];
+    if (lockBoard || finished || card.flipped || card.matched) return;
+
+    startTimer();
+    card.flipped = true;
+    card.el.classList.add('flipped');
+
+    if (!firstPick) {
+      firstPick = i;
+      return;
+    }
+
+    secondPick = i;
+    moves++;
+    updateStats();
+    lockBoard = true;
+
+    const a = cards[firstPick];
+    const b = cards[secondPick];
+    if (a.symbol === b.symbol) {
+      a.matched = b.matched = true;
+      a.el.classList.add('matched');
+      b.el.classList.add('matched');
+      a.el.disabled = b.el.disabled = true;
+      matchedCount++;
+      updateStats();
+      resetPicks();
+      if (matchedCount === totalPairs) endGame();
+    } else {
+      setTimeout(() => {
+        a.flipped = b.flipped = false;
+        a.el.classList.remove('flipped');
+        b.el.classList.remove('flipped');
+        resetPicks();
+      }, 800);
+    }
+  }
+
+  function resetPicks() {
+    firstPick = secondPick = null;
+    lockBoard = false;
+  }
+
+  function endGame() {
+    finished = true;
+    stopTimer();
+    msgEl.textContent = 'You won in ' + moves + ' moves and ' + elapsed + ' seconds!';
+  }
+
+  function setSize(s) {
+    size = s;
+    document.getElementById('size-4').classList.toggle('active', s === 4);
+    document.getElementById('size-6').classList.toggle('active', s === 6);
+    newGame();
+  }
+
+  document.getElementById('size-4').addEventListener('click', () => setSize(4));
+  document.getElementById('size-6').addEventListener('click', () => setSize(6));
+  document.getElementById('reset').addEventListener('click', newGame);
+
+  newGame();
+</script>
+</body>
+</html>

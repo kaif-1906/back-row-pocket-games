@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect Four</title>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --surface: #ffffff;
+    --text: #22201c;
+    --muted: #7a756b;
+    --line: #d6d1c4;
+    --hole: #e4dfd2;
+    --red: #e0495b;
+    --yellow: #f2b632;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1b19;
+      --surface: #272622;
+      --text: #f2efe8;
+      --muted: #9c978a;
+      --line: #3d3b35;
+      --hole: #151412;
+      --red: #ff6b7f;
+      --yellow: #ffd166;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1b19;
+    --surface: #272622;
+    --text: #f2efe8;
+    --muted: #9c978a;
+    --line: #3d3b35;
+    --hole: #151412;
+    --red: #ff6b7f;
+    --yellow: #ffd166;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top, 0px) 12px env(safe-area-inset-bottom, 0px);
+  }
+  .wrap { width: 100%; max-width: 420px; text-align: center; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: 0.02em; }
+  .status { min-height: 1.5em; color: var(--muted); margin: 8px 0 14px; font-size: 1rem; }
+  .status strong { color: var(--text); }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    background: var(--line);
+    padding: 8px;
+    border-radius: 16px;
+  }
+  .col { display: grid; grid-template-rows: repeat(6, 1fr); gap: 6px; cursor: pointer; }
+  .col.full { cursor: default; }
+  .col:hover:not(.full) .cell.empty { background: var(--line); }
+  .cell {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--hole);
+    transition: background 0.15s;
+  }
+  .cell.red { background: var(--red); }
+  .cell.yellow { background: var(--yellow); }
+  .cell.win { box-shadow: 0 0 0 3px var(--text) inset; }
+  .controls { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  button.btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button.btn:hover { filter: brightness(0.97); }
+  .score { display: flex; justify-content: space-around; margin-top: 18px; font-size: 0.95rem; color: var(--muted); }
+  .score b { display: block; font-size: 1.4rem; color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Connect Four</h1>
+  <div class="status" id="status"></div>
+  <div class="board" id="board" aria-label="Connect Four board"></div>
+  <div class="controls">
+    <button class="btn active" id="mode-2p" type="button">2 Players</button>
+    <button class="btn" id="mode-cpu" type="button">vs Computer</button>
+    <button class="btn" id="reset" type="button">New Game</button>
+  </div>
+  <div class="score">
+    <div>Red<b id="score-r">0</b></div>
+    <div>Draws<b id="score-d">0</b></div>
+    <div>Yellow<b id="score-y">0</b></div>
+  </div>
+</div>
+
+<script>
+  const ROWS = 6, COLS = 7;
+  let grid, current, over, vsCPU, scores;
+  scores = { R: 0, Y: 0, D: 0 };
+  vsCPU = false;
+
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const colEls = [];
+  const cellEls = []; // cellEls[r][c]
+
+  for (let c = 0; c < COLS; c++) {
+    const col = document.createElement('div');
+    col.className = 'col';
+    col.addEventListener('click', () => play(c));
+    const cellsForCol = [];
+    for (let r = 0; r < ROWS; r++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell empty';
+      col.appendChild(cell);
+      cellsForCol.push(cell);
+    }
+    boardEl.appendChild(col);
+    colEls.push(col);
+    cellEls.push(cellsForCol);
+  }
+  // Rearrange so cellEls[r][c] indexes by row
+  const cellByRC = [];
+  for (let r = 0; r < ROWS; r++) {
+    cellByRC.push([]);
+    for (let c = 0; c < COLS; c++) cellByRC[r].push(cellEls[c][ROWS - 1 - r]);
+  }
+
+  function newBoard() {
+    return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  }
+
+  function dropRow(b, c) {
+    for (let r = 0; r < ROWS; r++) if (!b[r][c]) return r;
+    return -1;
+  }
+
+  function findWin(b) {
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = b[r][c];
+        if (!p) continue;
+        for (const [dr, dc] of dirs) {
+          const line = [[r, c]];
+          for (let k = 1; k < 4; k++) {
+            const nr = r + dr * k, nc = c + dc * k;
+            if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || b[nr][nc] !== p) break;
+            line.push([nr, nc]);
+          }
+          if (line.length === 4) return { player: p, line };
+        }
+      }
+    }
+    if (b[ROWS - 1].every(v => v)) return { player: 'D', line: [] };
+    return null;
+  }
+
+  function render(winLine = []) {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const el = cellByRC[r][c];
+        const v = grid[r][c];
+        const isWin = winLine.some(([wr, wc]) => wr === r && wc === c);
+        el.className = 'cell ' + (v === 'R' ? 'red' : v === 'Y' ? 'yellow' : 'empty') + (isWin ? ' win' : '');
+      }
+    }
+    colEls.forEach((col, c) => col.classList.toggle('full', dropRow(grid, c) === -1 || over || (vsCPU && current === 'Y')));
+    document.getElementById('score-r').textContent = scores.R;
+    document.getElementById('score-y').textContent = scores.Y;
+    document.getElementById('score-d').textContent = scores.D;
+  }
+
+  function announce() {
+    if (over) return;
+    if (vsCPU && current === 'Y') setStatus('Computer is thinking…');
+    else setStatus((current === 'R' ? 'Red' : 'Yellow') + '\'s turn');
+  }
+
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  function play(c) {
+    if (over || (vsCPU && current === 'Y')) return;
+    const r = dropRow(grid, c);
+    if (r === -1) return;
+    makeMove(r, c);
+    if (!over && vsCPU && current === 'Y') setTimeout(cpuMove, 400);
+  }
+
+  function makeMove(r, c) {
+    grid[r][c] = current;
+    const result = findWin(grid);
+    if (result) {
+      over = true;
+      if (result.player === 'D') {
+        scores.D++;
+        render();
+        setStatus('It\'s a <strong>draw</strong>!');
+      } else {
+        scores[result.player]++;
+        render(result.line);
+        setStatus('<strong>' + (result.player === 'R' ? 'Red' : 'Yellow') + '</strong> wins!');
+      }
+      return;
+    }
+    current = current === 'R' ? 'Y' : 'R';
+    render();
+    announce();
+  }
+
+  // Computer plays Yellow: win if possible, block red's win, else prefer center columns.
+  function cpuMove() {
+    if (over) return;
+    let col = -1;
+    for (const p of ['Y', 'R']) {
+      for (let c = 0; c < COLS && col === -1; c++) {
+        const r = dropRow(grid, c);
+        if (r === -1) continue;
+        grid[r][c] = p;
+        if (findWin(grid)?.player === p) col = c;
+        grid[r][c] = null;
+      }
+      if (col !== -1) break;
+    }
+    if (col === -1) {
+      const order = [3, 2, 4, 1, 5, 0, 6];
+      col = order.find(c => dropRow(grid, c) !== -1);
+    }
+    makeMove(dropRow(grid, col), col);
+  }
+
+  function newGame() {
+    grid = newBoard();
+    current = 'R';
+    over = false;
+    render();
+    announce();
+  }
+
+  function setMode(cpu) {
+    vsCPU = cpu;
+    document.getElementById('mode-2p').classList.toggle('active', !cpu);
+    document.getElementById('mode-cpu').classList.toggle('active', cpu);
+    scores = { R: 0, Y: 0, D: 0 };
+    newGame();
+  }
+
+  document.getElementById('mode-2p').addEventListener('click', () => setMode(false));
+  document.getElementById('mode-cpu').addEventListener('click', () => setMode(true));
+  document.getElementById('reset').addEventListener('click', newGame);
+
+  newGame();
+</script>
+</body>
+</html>
